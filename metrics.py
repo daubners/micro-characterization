@@ -268,7 +268,7 @@ def smooth_with_convolution(array):
     smooth = convolve(array*1.0, weights=strel) / np.sum(strel)
     return smooth
 
-def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None, eta=0):
+def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
     """
     Compute the surface area of a 3D phase represented by phase fraction [0,1] in an array.
 
