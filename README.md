@@ -5,15 +5,6 @@
 </p>
 
 
-## Implemented functions
-
-The following functions are implemented based on a voxel representation of phases
-- volume fraction
-- select_box_from_array
-- check connectivity
-- surface area: needs FIX!
-- tortuosity based on the project Taufactor https://github.com/tldr-group/taufactor/blob/main/README.md
-
 ## Description
 This repository contains the python code to reproduce the results from [Daubner and Nestler 2024](add link). The abstract reads:
 
