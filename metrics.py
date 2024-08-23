@@ -252,6 +252,7 @@ def specific_surface_area_marching(array, voxel_size=1.0):
 
     return specific_surface
 
+
 def specific_surface_area_porespy(array, voxel_size=1.0, smooth=None):
     if smooth:
         smoothing = ps.tools.ps_round(smooth, array.ndim, smooth=False)
@@ -263,10 +264,12 @@ def specific_surface_area_porespy(array, voxel_size=1.0, smooth=None):
 
     return specific_surface
 
+
 def smooth_with_convolution(array):
     strel = generate_binary_structure(3,1)
     smooth = convolve(array*1.0, weights=strel) / np.sum(strel)
     return smooth
+
 
 def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
     """
@@ -279,25 +282,19 @@ def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
     Returns:
         float: The specific surface area of the phase in 1/length unit based on specified voxel size.
     """
-    # try out smoothing
+
     if smooth:
         mask = smooth_with_convolution(array)
     else:
         mask = array
-    
-    gradx = np.gradient(mask, axis=0)/dx
-    grady = np.gradient(mask, axis=1)/dy
-    
-    if array.ndim == 2:
-        gradient_norm = np.sqrt(gradx**2 + grady**2)
-    elif array.ndim == 3:
-        gradz = np.gradient(mask, axis=2)/dz
-        gradient_norm = np.sqrt(gradx**2 + grady**2 + gradz**2)
-    else:
-        raise ValueError("Array must be 2D or 3D!")
+        
+    norm2 = (np.gradient(mask, axis=0)/dx)**2
+    norm2 += (np.gradient(mask, axis=1)/dy)**2
+    if array.ndim == 3:
+        norm2 += (np.gradient(mask, axis=2)/dz)**2
     
     # Calculate the surface area as the integral over |grad phi|
-    surface_area = np.sum(gradient_norm) #*dx*dy*dz
+    surface_area = np.sum(np.sqrt(norm2)) #*dx*dy*dz
     
     # Norm the calculated surface to the box volume
     volume = np.prod(array.shape) #*dx*dy*dz
