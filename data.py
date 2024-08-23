@@ -25,12 +25,13 @@ def add_voxel_sphere(array, center_x, center_y, center_z, radius):
     Create a voxelized representation of a sphere in 3D array based on
     given midpoint and radius in terms of pixel resolution.
     """
-    [nx,ny,nz] = array.shape
-    for x in range(nx):
-        for y in range(ny):
-            for z in range(nz):
-                if (x-center_x+0.5)**2 + (y-center_y+0.5)**2 + (z-center_z+0.5)**2 <= radius**2:
-                    array[x, y, z] = 1
+    nx, ny, nz = array.shape
+    x, y, z = np.ogrid[:nx, :ny, :nz]
+    
+    distance_squared = (x - center_x + 0.5)**2 + (y - center_y + 0.5)**2 + (z - center_z + 0.5)**2
+    mask = distance_squared <= radius**2
+    array[mask] = 1
+
 
 def create_voxelized_sphere(Radius):
     """
@@ -260,6 +261,7 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
     print(f"Converged in {it-1} steps. F_pot/F_grad={(F_pot/F_grad):.4f}")
             
     return field[center]
+
 
 #%% Write output
 def write_dict_to_txt(dictionary, filename, delimiter="\t"):
