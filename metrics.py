@@ -310,7 +310,8 @@ def tortuosity(array, run_on='cpu'):
     # create a solver object with loaded image
     s = tau.Solver(array, device=run_on)
     # call solve function
-    s.solve(verbose='per_iter', conv_crit=1e-3)
+    # s.solve(verbose='per_iter', conv_crit=1e-3)
+    s.solve()
     
     return s.tau
 
