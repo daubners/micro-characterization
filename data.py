@@ -7,6 +7,7 @@
 import imageio.v2 as imageio
 import matplotlib.pyplot as plt
 import numpy as np
+import pyvista as pv
 import os
 
 #%% Input
@@ -27,7 +28,7 @@ def add_voxel_sphere(array, center_x, center_y, center_z, radius):
     """
     nx, ny, nz = array.shape
     x, y, z = np.ogrid[:nx, :ny, :nz]
-    
+
     distance_squared = (x - center_x + 0.5)**2 + (y - center_y + 0.5)**2 + (z - center_z + 0.5)**2
     mask = distance_squared <= radius**2
     array[mask] = 1
@@ -71,7 +72,7 @@ def create_fcc_cube(pixels, overlap=0.0):
     # Calculate the center and radius
     center = 0.5*pixels
     radius = 0.25*np.sqrt(2)*pixels/(1-0.5*overlap)
-    
+
     # Add half-spheres centered on each face of the cube
     # We have 6 centers, a list of three center positions with a pos and neg sign
     for axis in range(3):
@@ -94,15 +95,15 @@ def theoretical_fcc_metrics(a, overlap):
         h = 0.5*radius*overlap
         cap_volume = np.pi/3*h*h*(3*radius-h)
         cap_area = 2*np.pi*radius*h
-        
+
         volume = 4*4/3*np.pi*radius**3 - 48*cap_volume
         volume_fraction = volume/(a**3)
-        
+
         surface = 4*4*np.pi*radius**2 - 48*cap_area
         specific_surface = surface/(a**3)
     else:
         raise ValueError("Overlap must be smaller than 26.8%!")
-    
+
     return volume_fraction, specific_surface
 
 
@@ -120,20 +121,20 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
         eps (float): Epsilon scales interfacial with. Typically in range [3,6]
         potential (string): Can be either 'well' or 'obstacle'
     """
-    
+
     # Define threshold close to zero to avoid division by zero
     zero = 1e-15
     # Stable timestep for dx=1 and M=1
     dt = 0.0025
-    
+
     if array.ndim == 2:
         [nx,ny] = np.shape(array)
-        
+
         # Initialize phi field which has dimensions Nx+2 and Ny+2. Boundary values of array
         # are copied into ghost cells which are necessary to impose boundary conditions.
         field = np.concatenate((np.reshape(array[0,:],(1,ny)),array,np.reshape(array[-1,:],(1,ny))),axis=0)
         field = np.concatenate((np.reshape(field[:,0],(nx+2,1)),field,np.reshape(field[:,-1],(nx+2,1))),axis=1)
-        
+
         # Construct slices for better readability
         # x-1: left,   x+1: right
         # y-1: bottom, y+1: top
@@ -142,7 +143,7 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
         right  = np.s_[2:  ,1:-1]
         bottom = np.s_[1:-1, :-2]
         top    = np.s_[1:-1,2:  ]
-        
+
         # Terminate loop if either
         # 10'000 steps have been computed or
         # ratio of F_pot/F_grad has converged to one
@@ -151,7 +152,7 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
         while it<10001 and not converged:
             norm2 = 0.25 * ((field[right] - field[left])**2) + 0.25 * ((field[top] - field[bottom])**2)
             F_grad = eps*np.sum(norm2)
-            
+
             # As we wil divide by norm2, we need to take care of small values
             bulk = np.where(norm2 <= zero)
             norm2[bulk] = 1.0
@@ -167,12 +168,12 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
             if potential == "well":
                 field[center] += dt * 2*(eps*(stabilize*laplace + (1.0-stabilize)*eLe/norm2) - 9/eps*field[center]*(1-field[center])*(1-2*field[center]))
                 F_pot  = 9/eps*np.sum((field[center]**2) * ((1-field[center])**2))
-            
+
             elif potential == "obstacle":
                 field[1:-1,1:-1] += dt * (2*eps*(stabilize*laplace + (1.0-stabilize)*eLe/norm2) - 16/eps/np.pi**2 * (1-2*field[center]))
                 field = np.maximum(0.0, np.minimum(field, 1.0))
                 F_pot  = 16/eps/(np.pi**2) * np.sum(field[center] * (1-field[center]))
-                
+
             else:
                 raise ValueError("Choose well or obstacle as potential term!")
 
@@ -181,18 +182,18 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
             field[-1,:] = field[-2,:]
             field[:,0] = field[:,1]
             field[:,-1] = field[:,-2]
-            
+
             it += 1
             converged = np.abs(F_pot/F_grad-1.0)<convergence
-        
+
     elif array.ndim == 3:
         [nx,ny,nz] = np.shape(array)
-        
+
         # Initialize phi field which has dimensions Nx+2, Ny+2 and Nz+2.
         field = np.concatenate((np.reshape(array[0,:,:],(1,ny,nz)),array,np.reshape(array[-1,:,:],(1,ny,nz))),axis=0)
         field = np.concatenate((np.reshape(field[:,0,:],(nx+2,1,nz)),field,np.reshape(field[:,-1,:],(nx+2,1,nz))),axis=1)
         field = np.concatenate((np.reshape(field[:,:,0],(nx+2,ny+2,1)),field,np.reshape(field[:,:,-1],(nx+2,ny+2,1))),axis=2)
-        
+
         # Construct slices for better readability
         # x-1: left,   x+1: right
         # y-1: bottom, y+1: top
@@ -215,11 +216,11 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
                      +0.25 * ((field[top]   - field[bottom])**2)
                      +0.25 * ((field[front] - field[back])**2) )
             F_grad = eps*np.sum(norm2)
-            
+
             # As we wil divide by norm2, we need to take care of small values
             bulk = np.where(norm2 <= zero)
             norm2[bulk] = 1.0 
-            
+
             eLe = (  0.25 * ((field[right] - field[left])**2) * (field[right] - 2*field[center] + field[left]  )
                    + 0.25 * ((field[top] - field[bottom])**2) * (field[top]   - 2*field[center] + field[bottom])
                    + 0.25 * ((field[front] - field[back])**2) * (field[front] - 2*field[center] + field[back]  )
@@ -236,12 +237,12 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
                 field[center] += dt * 2*( eps*(stabilize*laplace + (1.0-stabilize)*eLe/norm2)
                                                  -9/eps*field[center]*(1-field[center])*(1-2*field[center]) )
                 F_pot  = 9/eps*np.sum((field[center]**2) * ((1-field[center])**2))
-            
+
             elif potential == "obstacle":
                 field[center] += dt * (2*eps*(stabilize*laplace + (1.0-stabilize)*eLe/norm2) - 16/eps/np.pi**2 * (1-2*field[center]))
                 field = np.maximum(0.0, np.minimum(field, 1.0))
                 F_pot  = 16/eps/(np.pi**2) * np.sum(field[center] * (1-field[center]))
-                
+
             else:
                 raise ValueError("Choose well or obstacle as potential term!")
 
@@ -252,14 +253,14 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
             field[:,-1,:] = field[:,-2,:]
             field[:,:, 0] = field[:,:, 1]
             field[:,:,-1] = field[:,:,-2]
-            
+
             it += 1
             converged = np.abs(F_pot/F_grad-1.0)<convergence
     else:
-        raise ValueError("Array must be 2D or 3D!")    
-        
+        raise ValueError("Array must be 2D or 3D!")
+
     print(f"Converged in {it-1} steps. F_pot/F_grad={(F_pot/F_grad):.4f}")
-            
+
     return field[center]
 
 
@@ -283,6 +284,25 @@ def write_dict_to_txt(dictionary, filename, delimiter="\t"):
         for i in range(len(next(iter(dictionary.values())))):
             row = delimiter.join(str(dictionary[key][i]) for key in dictionary)
             txtfile.write(row + "\n")
+
+
+def export_to_vtk(array, filename="output.vtk", spacing=(1.0, 1.0, 1.0)):
+    """
+    Export a 3D numpy array to VTK format for visualization in VisIt or ParaView.
+
+    Parameters:
+        array (numpy.ndarray): The 3D numpy array.
+        filename (str): The output VTK file name.
+        spacing (tuple): The voxel size for each axis (dx, dy, dz).
+    """
+    # Create a structured grid from the array
+    grid = pv.ImageData()
+
+    grid.dimensions = np.array(array.shape) + 1
+    grid.spacing = spacing
+    grid.origin = np.array(spacing)/2
+    grid.cell_data["values"] = array.flatten(order="F")  # Fortran order flattening
+    grid.save(filename)
 
 
 #%% Plotting
@@ -316,7 +336,7 @@ def plot_connectivity(phase, feature, title=None, dpi=100):
 
     # Plot the voxels of phase in blue with opacity 0.05
     ax.voxels(phase, facecolors='blue', edgecolor='none',alpha=0.05)
-    
+
     # Plot connected feature with red spheres
     ax.scatter(xx, yy, zz, c='r', marker='o',alpha=0.5)
 
@@ -325,9 +345,9 @@ def plot_connectivity(phase, feature, title=None, dpi=100):
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
     ax.set_aspect('equal')
-    
+
     if title:
         plt.title(title)
-    
+
     plt.tight_layout()
     plt.show()

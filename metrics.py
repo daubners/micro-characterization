@@ -7,6 +7,7 @@
 import numpy as np
 import taufactor as tau
 import porespy as ps
+import torch
 
 from scipy.ndimage import label, generate_binary_structure, convolve
 from skimage import measure
@@ -74,7 +75,7 @@ def label_periodic(field, grayscale_value, neighbour_structure, periodic, debug=
         for i in range(swap_list.shape[0]):
             index = swap_list.shape[0] - i -1
             labeled_mask[labeled_mask == swap_list[index][1]] = swap_list[index][0]
-        count += 1    
+        count += 1
     if(debug):
         print(f"Did {count} iterations for periodic labelling.")
     dim = labeled_mask.shape
@@ -99,7 +100,7 @@ def find_spanning_labels(labelled_array, axis):
         end   = np.s_[:,:,-1]
     else:
         raise ValueError("Axis should be x, y or z!")
-        
+
     first_slice_labels = np.unique(labelled_array[front])
     last_slice_labels = np.unique(labelled_array[end])
     spanning_labels = set(first_slice_labels) & set(last_slice_labels)
@@ -111,15 +112,15 @@ def extract_through_feature(array, grayscale_value, axis, periodic=[False,False,
     if array.ndim != 3:
         print(f"Expected a 3D array, but got an array with {array.ndim} dimension(s).")
         return None
-    
+
     # Compute volume fraction of given grayscale value
     vol_phase = volume_fraction(array, grayscale_value)
-    
+
     # Define a list of connectivities to loop over
     connectivities_to_loop_over = [connectivity] if connectivity else range(1, 4)
     through_feature = []
     through_feature_fraction = np.zeros(len(connectivities_to_loop_over))
-    
+
     # Compute the largest interconnected features depending on given connectivity
     count = 0;
     for conn in connectivities_to_loop_over:
@@ -137,7 +138,7 @@ def extract_through_feature(array, grayscale_value, axis, periodic=[False,False,
 
         through_labels = find_spanning_labels(labeled_mask,axis)
         spanning_network = np.isin(labeled_mask, list(through_labels))
-        
+
         through_feature.append(spanning_network)
         through_feature_fraction[count] = volume_fraction(spanning_network,1)/vol_phase
         count += 1
@@ -149,15 +150,15 @@ def largest_interconnected_feature(array, grayscale_value, periodic=[False,False
     if array.ndim != 3:
         print(f"Expected a 3D array, but got an array with {array.ndim} dimension(s).")
         return None
-    
+
     # Compute volume fraction of given grayscale value
     vol_phase = volume_fraction(array, grayscale_value)
-    
+
     # Define a list of connectivities to loop over
     connectivities_to_loop_over = [connectivity] if connectivity else range(1, 4)
     largest_feature = []
     largest_feature_size = np.zeros(len(connectivities_to_loop_over))
-    
+
     # Compute the largest interconnected features depending on given connectivity
     count = 0;
     for conn in connectivities_to_loop_over:
@@ -178,7 +179,7 @@ def largest_interconnected_feature(array, grayscale_value, periodic=[False,False
                 print("Batching is currently not implemented for periodic arrays.")
                 return None
             print(f"Found {num_labels} labeled regions. For connectivity {conn} and grayscale {grayscale_value}.")
-            
+
             batch_size = int(batch_size + np.ceil((num_labels%batch_size)/np.floor_divide(num_labels,batch_size)))
             print(f"Divide work in {int(np.ceil(num_labels/batch_size))} batches.")
             batch = 0
@@ -242,10 +243,10 @@ def specific_surface_area_marching(array, voxel_size=1.0):
 
     # Sum up the area of all faces
     surface_area = np.sum(area)
-    
+
     # Adjust surface area based on the voxel size
     surface_area *= voxel_size**2
-    
+
     # Norm the calculated surface to the box volume
     volume = np.prod(array.shape)*voxel_size**3
     specific_surface = surface_area/volume
@@ -267,8 +268,55 @@ def specific_surface_area_porespy(array, voxel_size=1.0, smooth=None):
 
 def smooth_with_convolution(array):
     strel = generate_binary_structure(3,1)
-    smooth = convolve(array*1.0, weights=strel) / np.sum(strel)
+    smooth = convolve(array, strel, mode='nearest') / np.sum(strel)
+
     return smooth
+
+
+def specific_surface_area_torch(array, dx=1.0, dy=1.0, dz=1.0, device='cpu'):
+    """
+    Compute the surface area of a 3D phase represented by phase fraction [0,1] in an array.
+
+    Parameters:
+        float_array (numpy.ndarray): The 3D float array with phase fraction for the phase of interest.
+        dx, dy, dz (float): The side lengths of each voxel (optional, default is 1.0).
+
+    Returns:
+        float: The specific surface area of the phase in 1/length unit based on specified voxel size.
+    """
+
+    # Convert the input NumPy array to a PyTorch tensor
+    tensor = torch.tensor(array, dtype=torch.float32)
+
+    # Move tensor to the specified device (CPU or GPU)
+    tensor = tensor.to(device)
+
+    # Compute gradients along each axis using PyTorch's autograd
+    # grad_x = torch.gradient(tensor, spacing=(dx,), dim=0)[0]
+    # grad_y = torch.gradient(tensor, spacing=(dy,), dim=1)[0]
+    grad = torch.gradient(tensor, spacing=(dx,dy,dz))
+
+    # Initialize norm2 with the squared gradients
+    # norm2 = grad_x.pow(2) + grad_y.pow(2)
+    norm2 = grad[0].pow(2) + grad[1].pow(2)
+
+    if array.ndim == 3:
+        # grad_z = torch.gradient(tensor, spacing=(dz,), dim=2)[0]
+        # norm2 += grad_z.pow(2)
+        norm2 += grad[2].pow(2)
+
+    # Calculate the surface area as the sum of the gradient magnitudes
+    surface_area = torch.sum(torch.sqrt(norm2))
+
+    # Move the result back to the CPU if necessary
+    surface_area = surface_area.cpu().item()
+
+    # Norm the calculated surface to the box volume
+    # volume = torch.prod(torch.tensor(array.shape, dtype=torch.float32)).to(device)
+    volume = np.prod(array.shape)
+    specific_surface = surface_area / volume
+
+    return specific_surface
 
 
 def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
@@ -277,7 +325,7 @@ def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
 
     Parameters:
         float_array (numpy.ndarray): The 3D float array with phase fraction for the phase of interest.
-        voxel_size (float): The size of each voxel (optional, default is 1.0).
+        dx, dy, dz (float): The side lengths of each voxel (optional, default is 1.0).
 
     Returns:
         float: The specific surface area of the phase in 1/length unit based on specified voxel size.
@@ -287,15 +335,15 @@ def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
         mask = smooth_with_convolution(array)
     else:
         mask = array
-        
+
     norm2 = (np.gradient(mask, axis=0)/dx)**2
     norm2 += (np.gradient(mask, axis=1)/dy)**2
     if array.ndim == 3:
         norm2 += (np.gradient(mask, axis=2)/dz)**2
-    
+
     # Calculate the surface area as the integral over |grad phi|
     surface_area = np.sum(np.sqrt(norm2)) #*dx*dy*dz
-    
+
     # Norm the calculated surface to the box volume
     volume = np.prod(array.shape) #*dx*dy*dz
     specific_surface = surface_area/volume
@@ -306,13 +354,13 @@ def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
 def tortuosity(array, run_on='cpu'):
     # https://github.com/tldr-group/taufactor/blob/main/README.md
     # https://www.sciencedirect.com/science/article/pii/S2352711016300280
-    
+
     # create a solver object with loaded image
     s = tau.Solver(array, device=run_on)
     # call solve function
     # s.solve(verbose='per_iter', conv_crit=1e-3)
     s.solve()
-    
+
     return s.tau
 
 
@@ -322,11 +370,11 @@ def multiphaseTortuosity(array,phases):
     # phases must be a dictionary containing the labels and
     # respective conductivity/diffusivity of phases.
     # e.g. phases = {255:1, 0:0.123}
-    
+
     # create a solver object with loaded image
     s = tau.MultiPhaseSolver(array, cond=phases, device='cpu')
     # call solve function
     s.solve()
     # s.solve(iter_limit=1000, conv_limit = 0.01)
-    
+
     return s
