@@ -264,6 +264,20 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
     return field[center]
 
 
+def relabel_random_order(array):
+    remaining_labels = np.unique(array)
+    new_labels = np.arange(len(remaining_labels))
+    # Zero should be kept where it is
+    np.random.shuffle(new_labels[1:])
+
+    # Create a mapping from old labels to new shuffled labels
+    label_mapping = dict(zip(remaining_labels, new_labels))
+
+    # Vectorized relabeling using np.vectorize for efficiency
+    relabel_function = np.vectorize(lambda x: label_mapping[x])
+
+    return relabel_function(array)
+
 #%% Write output
 def write_dict_to_txt(dictionary, filename, delimiter="\t"):
     """

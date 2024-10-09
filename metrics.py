@@ -310,9 +310,6 @@ def specific_surface_area_torch(array, dx=1.0, dy=1.0, dz=1.0, device='cpu'):
 
     # Move the result back to the CPU if necessary
     surface_area = surface_area.cpu().item()
-
-    # Norm the calculated surface to the box volume
-    # volume = torch.prod(torch.tensor(array.shape, dtype=torch.float32)).to(device)
     volume = np.prod(array.shape)
     specific_surface = surface_area / volume
 
