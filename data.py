@@ -90,9 +90,11 @@ def create_fcc_cube(pixels, overlap=0.0):
 
 
 def theoretical_fcc_metrics(a, overlap):
+    # Notation consistent with https://en.wikipedia.org/wiki/Spherical_cap
     if overlap < (1-np.cos(np.pi/6))*2:
         radius = 0.25*np.sqrt(2)*a/(1-0.5*overlap)
         h = 0.5*radius*overlap
+        cap_radius = np.sqrt(2*radius*h - h*h)
         cap_volume = np.pi/3*h*h*(3*radius-h)
         cap_area = 2*np.pi*radius*h
 
@@ -104,7 +106,7 @@ def theoretical_fcc_metrics(a, overlap):
     else:
         raise ValueError("Overlap must be smaller than 26.8%!")
 
-    return volume_fraction, specific_surface
+    return volume_fraction, specific_surface, cap_radius
 
 
 #%% Field modification
@@ -264,6 +266,25 @@ def solveTwoPhaseWithoutCurvature(array, eps=4, convergence = 0.01, potential = 
     return field[center]
 
 
+def extract_inner_features(labelled_array):
+    initial_labels = np.unique(labelled_array).size
+    if initial_labels < 3:
+        raise ValueError("Input array should be labelled array with more than 3 phases!")
+
+    # Find all features which are in contact with domain boundary
+    boundary_labels = np.unique(labelled_array[0,:,:])
+    boundary_labels = np.concatenate((boundary_labels, np.unique(labelled_array[-1,:,:])))
+    boundary_labels = np.concatenate((boundary_labels, np.unique(labelled_array[:,0,:])))
+    boundary_labels = np.concatenate((boundary_labels, np.unique(labelled_array[:,-1,:])))
+    boundary_labels = np.concatenate((boundary_labels, np.unique(labelled_array[:,:,0])))
+    boundary_labels = np.concatenate((boundary_labels, np.unique(labelled_array[:,:,-1])))
+    boundary_labels = np.unique(boundary_labels)
+
+    mask_boundary_labels = np.isin(labelled_array, boundary_labels)
+    labelled_array[mask_boundary_labels] = 0
+    print(f"{np.unique(labelled_array).size} of initial {initial_labels} labels remaining.")
+
+
 def relabel_random_order(array):
     remaining_labels = np.unique(array)
     new_labels = np.arange(len(remaining_labels))
@@ -277,6 +298,7 @@ def relabel_random_order(array):
     relabel_function = np.vectorize(lambda x: label_mapping[x])
 
     return relabel_function(array)
+
 
 #%% Write output
 def write_dict_to_txt(dictionary, filename, delimiter="\t"):
@@ -314,9 +336,17 @@ def export_to_vtk(array, filename="output.vtk", spacing=(1.0, 1.0, 1.0)):
 
     grid.dimensions = np.array(array.shape) + 1
     grid.spacing = spacing
-    grid.origin = np.array(spacing)/2
+    grid.origin = np.zeros(3)
     grid.cell_data["values"] = array.flatten(order="F")  # Fortran order flattening
     grid.save(filename)
+
+
+def export_histogram(data, bins, range=(0,1), density=True, filename="histogram.txt"):
+    hist, bin_edges = np.histogram(data, bins=bins, range=range, density=density)
+    midpoints = (bin_edges[:-1] + bin_edges[1:]) / 2
+    hist_data = np.column_stack((midpoints, hist))
+
+    np.savetxt(filename, hist_data, fmt="%.6f", delimiter="\t", header="bins\t distribution")
 
 
 #%% Plotting

@@ -9,7 +9,7 @@ import taufactor as tau
 import porespy as ps
 import torch
 
-from scipy.ndimage import label, generate_binary_structure, convolve
+from scipy.ndimage import label, generate_binary_structure, convolve, find_objects
 from skimage import measure
 
 
@@ -122,7 +122,7 @@ def extract_through_feature(array, grayscale_value, axis, periodic=[False,False,
     through_feature_fraction = np.zeros(len(connectivities_to_loop_over))
 
     # Compute the largest interconnected features depending on given connectivity
-    count = 0;
+    count = 0
     for conn in connectivities_to_loop_over:
         # connectivity 1 = cells connected by sides (4/6 neighbours)
         # connectivity 2 = cells connected by sides & edges (8/14 neighbours)
@@ -160,7 +160,7 @@ def largest_interconnected_feature(array, grayscale_value, periodic=[False,False
     largest_feature_size = np.zeros(len(connectivities_to_loop_over))
 
     # Compute the largest interconnected features depending on given connectivity
-    count = 0;
+    count = 0
     for conn in connectivities_to_loop_over:
         # connectivity 1 = cells connected by sides (4 neighbours)
         # connectivity 2 = cells connected by sides & edges (12 neighbours)
@@ -230,25 +230,9 @@ def specific_surface_area_marching(array, voxel_size=1.0):
     """
     # Use marching cubes to extract the surface mesh
     vertices, faces, _, _ = measure.marching_cubes(array, 0.5, method='lewiner')
+    surface_area = measure.mesh_surface_area(vertices, faces)
 
-    # Compute the vectors for each face
-    vec1 = vertices[faces[:, 1]] - vertices[faces[:, 0]]
-    vec2 = vertices[faces[:, 2]] - vertices[faces[:, 0]]
-
-    # Compute the cross product of the vectors for each face
-    cross_prod = np.cross(vec1, vec2)
-
-    # Compute the norms of the cross products
-    area = 0.5 * np.linalg.norm(cross_prod, axis=1)
-
-    # Sum up the area of all faces
-    surface_area = np.sum(area)
-
-    # Adjust surface area based on the voxel size
-    surface_area *= voxel_size**2
-
-    # Norm the calculated surface to the box volume
-    volume = np.prod(array.shape)*voxel_size**3
+    volume = np.prod(array.shape)*voxel_size
     specific_surface = surface_area/volume
 
     return specific_surface
@@ -271,49 +255,6 @@ def smooth_with_convolution(array):
     smooth = convolve(array, strel, mode='nearest') / np.sum(strel)
 
     return smooth
-
-
-def specific_surface_area_torch(array, dx=1.0, dy=1.0, dz=1.0, device='cpu'):
-    """
-    Compute the surface area of a 3D phase represented by phase fraction [0,1] in an array.
-
-    Parameters:
-        float_array (numpy.ndarray): The 3D float array with phase fraction for the phase of interest.
-        dx, dy, dz (float): The side lengths of each voxel (optional, default is 1.0).
-
-    Returns:
-        float: The specific surface area of the phase in 1/length unit based on specified voxel size.
-    """
-
-    # Convert the input NumPy array to a PyTorch tensor
-    tensor = torch.tensor(array, dtype=torch.float32)
-
-    # Move tensor to the specified device (CPU or GPU)
-    tensor = tensor.to(device)
-
-    # Compute gradients along each axis using PyTorch's autograd
-    # grad_x = torch.gradient(tensor, spacing=(dx,), dim=0)[0]
-    # grad_y = torch.gradient(tensor, spacing=(dy,), dim=1)[0]
-    grad = torch.gradient(tensor, spacing=(dx,dy,dz))
-
-    # Initialize norm2 with the squared gradients
-    # norm2 = grad_x.pow(2) + grad_y.pow(2)
-    norm2 = grad[0].pow(2) + grad[1].pow(2)
-
-    if array.ndim == 3:
-        # grad_z = torch.gradient(tensor, spacing=(dz,), dim=2)[0]
-        # norm2 += grad_z.pow(2)
-        norm2 += grad[2].pow(2)
-
-    # Calculate the surface area as the sum of the gradient magnitudes
-    surface_area = torch.sum(torch.sqrt(norm2))
-
-    # Move the result back to the CPU if necessary
-    surface_area = surface_area.cpu().item()
-    volume = np.prod(array.shape)
-    specific_surface = surface_area / volume
-
-    return specific_surface
 
 
 def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
@@ -348,6 +289,65 @@ def specific_surface_area(array, dx=1.0, dy=1.0, dz=1.0, smooth=None):
     return specific_surface
 
 
+def crop_area_of_interest(tensor, labels):
+    indices = torch.nonzero(torch.isin(tensor, labels), as_tuple=True)
+    min_idx = [torch.min(idx).item() for idx in indices]
+    max_idx = [torch.max(idx).item() for idx in indices]
+
+    # Slice the tensor to the bounding box
+    # Make sure to stay inside the bounds of total array
+    sub_tensor = tensor[max(min_idx[0]-2,0):min(max_idx[0]+3,tensor.shape[0]),
+                        max(min_idx[1]-2,0):min(max_idx[1]+3,tensor.shape[1]),
+                        max(min_idx[2]-2,0):min(max_idx[2]+3,tensor.shape[2])]
+    return sub_tensor
+
+
+def specific_surface_areas_torch(labelled_array, dx=1.0, dy=1.0, dz=1.0, device='cpu'):
+    """
+    Compute the surface areas of all labelled phases represented by individual integers.
+    """
+    volume = np.prod(labelled_array.shape) #*dx*dy*dz
+    labels = np.unique(labelled_array)[1:]
+    surfaces = np.zeros(labels.size)
+
+    tensor = torch.tensor(labelled_array, dtype=torch.float32)
+    # Move tensor to the specified device (CPU or GPU)
+    tensor = tensor.to(device)
+    # Hard coded Gaussian kernel
+    kernel = torch.tensor([[[0.0115, 0.0279, 0.0115],
+                            [0.0279, 0.0679, 0.0279],
+                            [0.0115, 0.0279, 0.0115]],
+
+                           [[0.0279, 0.0679, 0.0279],
+                            [0.0679, 0.1653, 0.0679],
+                            [0.0279, 0.0679, 0.0279]],
+
+                           [[0.0115, 0.0279, 0.0115],
+                            [0.0279, 0.0679, 0.0279],
+                            [0.0115, 0.0279, 0.0115]]],
+                            dtype=torch.float32, device=device)
+    kernel = kernel/torch.sum(kernel)
+    kernel = kernel.unsqueeze(0).unsqueeze(0)
+
+    for i, label in enumerate(labels):
+        sub_tensor = crop_area_of_interest(tensor, label)
+        # Create binary mask for the label within the slice
+        mask = (sub_tensor == label).float()
+        mask = mask.unsqueeze(0).unsqueeze(0)
+        mask = torch.nn.functional.conv3d(mask, kernel, padding='same')
+        mask = mask.squeeze()
+
+        grad = torch.gradient(mask, spacing=(dx,dy,dz))
+        norm2 = grad[0].pow(2) + grad[1].pow(2)
+        if labelled_array.ndim == 3:
+            norm2 += grad[2].pow(2)
+        surface_area = torch.sum(torch.sqrt(norm2)).item()
+
+        surfaces[i] = surface_area / volume
+
+    return surfaces
+
+
 def tortuosity(array, run_on='cpu'):
     # https://github.com/tldr-group/taufactor/blob/main/README.md
     # https://www.sciencedirect.com/science/article/pii/S2352711016300280
@@ -355,8 +355,8 @@ def tortuosity(array, run_on='cpu'):
     # create a solver object with loaded image
     s = tau.Solver(array, device=run_on)
     # call solve function
-    # s.solve(verbose='per_iter', conv_crit=1e-3)
-    s.solve()
+    # s.solve(verbose='per_iter', iter_limit=30000, conv_crit=1e-3)
+    s.solve(iter_limit=20000, conv_crit=1e-3)
 
     return s.tau
 
