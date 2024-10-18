@@ -1,8 +1,8 @@
 ### Some helper functions for handling data
 
-### Simon Daubner (simon.daubner@kit.edu)
-### Department of Mechanical Engineering
-### Karlsruhe Institute of Technology
+### Simon Daubner (s.daubner@imperial.ac.uk)
+### Dyson School of Design Engineering
+### Imperial College London
 
 import imageio.v2 as imageio
 import matplotlib.pyplot as plt
