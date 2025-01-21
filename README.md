@@ -6,7 +6,7 @@
 
 
 ## Description
-This repository contains the python code to reproduce the results from [Daubner and Nestler 2024](add link). The abstract reads:
+This repository contains the python code to reproduce the results from [Daubner and Nestler 2024](https://iopscience.iop.org/article/10.1149/1945-7111/ad9a07/meta). The abstract reads:
 
 > The reliable computation of microstructure metrics such as specific surface area and tortuosity factors is key to bridge the gap between the battery microscale and fast, homogenized cell models.
 In this work, we present an approach to compute the surface area of phases based on pixelated image data which is both easy-to-implement and computationally efficient. The concept is inspired from the diffuse surface representation in phase-field methods. Subsequently, the approach is validated and compared with common python libraries on two benchmark cases and actual battery microstructure data. The results underline the reliability and fast computational performance of the approach.
